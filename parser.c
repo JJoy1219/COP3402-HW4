@@ -789,6 +789,14 @@ int symTableCheck(char ident[])
   return -1;
 }
 
+int symTableSearch(char string[], int lexlevel, int kind)
+{
+  for (int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++)
+    if (symboltable[i].level == lexlevel && symboltable[i].kind == kind)
+      if (symboltable[i].mark == UNMARKED)
+        return i;
+}
+
 // Reset the word for being read to avoid any conflicts
 void resetWord()
 {
