@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <math.h>
+#include <limits.h>
 
 #include "compiler.h"
 
@@ -14,6 +16,8 @@ typedef struct
   int val;
   int level;
   int addr;
+  int mark;
+  int param;
 } symbol;
 
 
@@ -65,7 +69,7 @@ typedef struct
 line code[500];
 int linePointer = 0;
 
-symbol symbol_table[500];
+symbol symbol_table[MAX_SYMBOL_TABLE_SIZE = 500];
 int symPointer = 0;
 
 char word[12];
@@ -90,6 +94,8 @@ int fact(FILE*);
 // Helper functions here
 int scanWord(FILE*);
 int symTableCheck(char[]);
+int symTableSearch(char string[], int lexlevel, int kind);
+int findProcedure(int num);
 void resetWord();
 void emit(int, char[], int, int);
 
@@ -348,6 +354,9 @@ int declVar(FILE *input)
   return numVars;
 }
 
+// PROCEDURE-DECLARATION
+
+int declProcedure()
 // STATEMENT
 // Returns 1 if everything goes smoothly
 // Returns -1 if there's an error that requires the program to be terminated
@@ -394,6 +403,68 @@ int statement(FILE *input)
 
       emit(4, "STO", 0, symbol_table[index].addr);
       return 1;
+    case callsym:
+      scanWord(input);
+
+
+      if (token != identsym)
+      {
+        printf("Error: const, var, procedure, call, and read keywords must be followed by identifier\n");
+        return -1;
+      }
+      symPointer = symTableSearch(token, lexlevel, 3);
+      if (symPointer == -1)
+      {
+        printf("Error\n");
+        return -1;
+      }
+      scanWord(input);
+      if (token == lparentsym)
+      {
+        scanWord(input);
+        if (symboltable[symPointer].param != 1)
+        {
+          printf("Error\n");
+          return -1;
+        }
+        expression(input);
+        if (token != rparentsym)
+        {
+          printf("Error\n");
+          return -1;
+        }
+        scanWord(input);
+      }
+      else
+      {
+        emit(1, "LIT", 0, 0);
+        // This is sketch
+      }
+      emit();
+    case returnsym:
+      if (lexlevel == 0)
+      {
+        printf("Error\n");
+        return -1;
+      }
+      scanWord(input);
+      if (token == lparentsym)
+      {
+        scanWord(input);
+        expression(input);
+        emit(RTN);
+        if (token != rparentsym)
+        {
+          printf("Error\n");
+          return -1;
+        }
+        scanWord(input);
+      }
+      else
+      {
+        emit("LIT",0);
+        emit("RTN");
+      }
     case beginsym:
       do
       {
@@ -429,6 +500,12 @@ int statement(FILE *input)
       scanWord(input);
 
       statement(input);
+
+      if (token == elsesym)
+      {
+        scanWord(input);
+
+      }
 
       code[jpcIndex].M = linePointer;
 
@@ -791,10 +868,27 @@ int symTableCheck(char ident[])
 
 int symTableSearch(char string[], int lexlevel, int kind)
 {
+  int index = -1;
+  int mindiff = INT_MAX;
   for (int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++)
-    if (symboltable[i].level == lexlevel && symboltable[i].kind == kind)
+    if (strcmp(symboltable[i].name, string) && symboltable[i].kind == kind)
       if (symboltable[i].mark == UNMARKED)
-        return i;
+      {
+        int diff = abs(symboltable[i].level - lexlevel);
+        if (diff < mindiff)
+        {
+          mindiff = diff;
+          index = i;
+        }
+      }
+  return index;
+}
+
+int findProcedure(int num)
+{
+  for (int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++)
+    if (symboltable[i].kind == 3 && symboltable[i].val == num)
+      return i;
 }
 
 // Reset the word for being read to avoid any conflicts
