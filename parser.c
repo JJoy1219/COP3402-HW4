@@ -397,7 +397,7 @@ int declProc(int lexLevel)
 // STATEMENT
 // Returns 1 if everything goes smoothly
 // Returns -1 if there's an error that requires the program to be terminated
-int (int lexlevel)
+int statement(int lexlevel)
 {
   int index = 0, jpcIndex = 0, loopIndex = 0, jmpIndex = 0;
 
@@ -795,7 +795,7 @@ int term(FILE *input)
 }
 
 // FACTOR
-int fact(FILE *input)
+int fact(int lexlevel)
 {
   int result = 0;
 
