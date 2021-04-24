@@ -69,7 +69,7 @@ typedef struct
 line code[500];
 int linePointer = 0;
 
-symbol symbol_table[MAX_SYMBOL_TABLE_SIZE = 500];
+symbol symbolTable[500];
 int symPointer = 0;
 
 char word[12];
@@ -91,11 +91,15 @@ int expression(FILE*);
 int term(FILE*);
 int fact(FILE*);
 
+// HW 4 pseudocode functions
+int mark(int);
+int declProc(int);
+
 // Helper functions here
 int scanWord(FILE*);
 int symTableCheck(char[]);
-int symTableSearch(char string[], int lexlevel, int kind);
-int findProcedure(int num);
+int symTableSearch(char[], int, int);
+int findProcedure(int);
 void resetWord();
 void emit(int, char[], int, int);
 
@@ -229,11 +233,11 @@ int declConst(FILE *input)
 
       scanWord(input);
 
-      symbol_table[symPointer].kind = 1;
-      strcpy(symbol_table[symPointer].name, identName);
-      symbol_table[symPointer].val = token;
-      symbol_table[symPointer].level = 0;
-      symbol_table[symPointer].addr = 0;
+      symbolTable[symPointer].kind = 1;
+      strcpy(symbolTable[symPointer].name, identName);
+      symbolTable[symPointer].val = token;
+      symbolTable[symPointer].level = 0;
+      symbolTable[symPointer].addr = 0;
 
       symPointer++;
 
@@ -301,11 +305,11 @@ int declVar(FILE *input)
               {
                 numVars++;
 
-                symbol_table[symPointer].kind = 2;
-                strcpy(symbol_table[symPointer].name, name);
-                symbol_table[symPointer].val = 0;
-                symbol_table[symPointer].level = 0;
-                symbol_table[symPointer].addr = numVars + 3;
+                symbolTable[symPointer].kind = 2;
+                strcpy(symbolTable[symPointer].name, name);
+                symbolTable[symPointer].val = 0;
+                symbolTable[symPointer].level = 0;
+                symbolTable[symPointer].addr = numVars + 3;
 
                 symPointer++;
                 namePointer = 0;
@@ -358,8 +362,38 @@ int declVar(FILE *input)
 }
 
 // PROCEDURE-DECLARATION
+// Returns # of procedures
+int declProc(int lexLevel)
+{
+  int numProc = 0;
 
-int declProcedure()
+  printf("Token: %d\n", token);
+
+  if (token == procsym)
+  {
+    do
+    {
+      numProc++;
+
+      scanWord(input);
+
+      if (token != ident)
+        printf("ERROR: Ident\n");
+
+      // Defaulted L = 0
+      // Change this ASAP to actually work with lexLevel
+      if (symTableCheck(token, 0) != -1)
+        printf("ERROR: LexLevel\n");
+
+      // procIdx = end of symbol table
+
+      symbolTable[symPointer].kind = 3;
+      symbolTable[symPointer].name =
+    } while (token == procsym);
+  }
+  return 0;
+}
+
 // STATEMENT
 // Returns 1 if everything goes smoothly
 // Returns -1 if there's an error that requires the program to be terminated
@@ -380,7 +414,7 @@ int (int lexlevel)
         return -1;
       }
 
-      if (symbol_table[index].kind != 2)
+      if (symbolTable[index].kind != 2)
       {
         printf("Error : Not a var. Terminating program.\n");
         return -1;
@@ -404,7 +438,7 @@ int (int lexlevel)
         return -1;
       }
 
-      emit(4, "STO", 0, symbol_table[index].addr);
+      emit(4, "STO", 0, symbolTable[index].addr);
       return 1;
     case callsym:
       scanWord(input);
@@ -425,7 +459,7 @@ int (int lexlevel)
       if (token == lparentsym)
       {
         scanWord(input);
-        if (symboltable[symPointer].param != 1)
+        if (symbolTable[symPointer].param != 1)
         {
           printf("Error\n");
           return -1;
@@ -562,7 +596,7 @@ int (int lexlevel)
       }
 
       // Not a var
-      if (symbol_table[index].kind != 2)
+      if (symbolTable[index].kind != 2)
       {
         printf("Error : only variable values may be altered\n");
         return -1;
@@ -571,7 +605,7 @@ int (int lexlevel)
       scanWord(input);
 
       emit(9, "SYS", 0, 2);
-      emit(4, "STO", 0, symbol_table[index].addr);
+      emit(4, "STO", 0, symbolTable[index].addr);
 
       return 1;
     case writesym:
@@ -779,15 +813,15 @@ int fact(FILE *input)
         return -1;
       }
 
-      if (symbol_table[result].kind == 1)
+      if (symbolTable[result].kind == 1)
       {
         // Constant
-        emit(1, "LIT", 0, symbol_table[result].val);
+        emit(1, "LIT", 0, symbolTable[result].val);
       }
-      else if (symbol_table[result].kind == 2)
+      else if (symbolTable[result].kind == 2)
       {
         // Variable
-        emit(3, "LOD", 0, symbol_table[result].addr);
+        emit(3, "LOD", 0, symbolTable[result].addr);
       }
 
       scanWord(input);
@@ -863,11 +897,26 @@ int scanWord(FILE *input)
   return 1;
 }
 
+int mark(int count)
+{
+  for (int i = symPointer - 1; i >= 0; i--)
+  {
+    if (symbolTable[i].mark == 0)
+    {
+      symbolTable[i].mark == 1;
+
+      count--;
+    }
+  }
+
+  return 0;
+}
+
 int symTableCheck(char ident[])
 {
   for (int i = 0; i < symPointer; i++)
   {
-    if (strcmp(ident, symbol_table[i].name) == 0)
+    if (strcmp(ident, symbolTable[i].name) == 0)
     {
       return i;
     }
@@ -879,11 +928,11 @@ int symTableSearch(char string[], int lexlevel, int kind)
 {
   int index = -1;
   int mindiff = INT_MAX;
-  for (int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++)
-    if (strcmp(symboltable[i].name, string) && symboltable[i].kind == kind)
-      if (symboltable[i].mark == UNMARKED)
+  for (int i = 0; i < 500; i++)
+    if (strcmp(symbolTable[i].name, string) && symbolTable[i].kind == kind)
+      if (symbolTable[i].mark == UNMARKED)
       {
-        int diff = abs(symboltable[i].level - lexlevel);
+        int diff = abs(symbolTable[i].level - lexlevel);
         if (diff < mindiff)
         {
           mindiff = diff;
@@ -895,8 +944,8 @@ int symTableSearch(char string[], int lexlevel, int kind)
 
 int findProcedure(int num)
 {
-  for (int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++)
-    if (symboltable[i].kind == 3 && symboltable[i].val == num)
+  for (int i = 0; i < 500; i++)
+    if (symbolTable[i].kind == 3 && symbolTable[i].val == num)
       return i;
 }
 
