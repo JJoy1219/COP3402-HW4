@@ -82,10 +82,10 @@ int token = 0;
 // HW 3 pseudocode functions
 int parse(int);
 int program(FILE*, int);
-int block(FILE*);
+int block(int, int, int);
 int declConst(FILE*);
 int declVar(FILE*);
-int statement(FILE*);
+int statement(int lexlevel);
 int condition(FILE*);
 int expression(FILE*);
 int term(FILE*);
@@ -157,19 +157,22 @@ int program(FILE *input, int print)
 }
 
 
-int block (FILE *input)
+int block (int lexlevel, int param, int procedureIndex)
 {
-  int constResult = declConst(input);
+  int c = declConst(lexlevel);
 
-  int varNum = declVar(input);
+  int v = declVar(lexlevel, param);
 
-  emit(6, "INC", 0, (4+varNum));
+  int p = declProc(lexlevel);
+
+  symbol_table[procedureIndex].addr = linePointer;
+
+  emit(6, "INC", 0, (4+v));
 
   // STATEMENT
-  scanWord(input);
-  int result = statement(input);
+  statement(lexlevel);
 
-  return result;
+  mark(c+v+p);
 }
 
 // CONST-DECLARATION
@@ -360,9 +363,9 @@ int declProcedure()
 // STATEMENT
 // Returns 1 if everything goes smoothly
 // Returns -1 if there's an error that requires the program to be terminated
-int statement(FILE *input)
+int (int lexlevel)
 {
-  int index = 0, jpcIndex = 0, loopIndex = 0;
+  int index = 0, jpcIndex = 0, loopIndex = 0, jmpIndex = 0;
 
   switch(token)
   {
@@ -427,7 +430,7 @@ int statement(FILE *input)
           printf("Error\n");
           return -1;
         }
-        expression(input);
+        expression(lexlevel);
         if (token != rparentsym)
         {
           printf("Error\n");
@@ -440,7 +443,7 @@ int statement(FILE *input)
         emit(1, "LIT", 0, 0);
         // This is sketch
       }
-      emit();
+      emit(5, "CAL", lexlevel - symboltable[symPointer].level, symboltable[symPointer].value);
     case returnsym:
       if (lexlevel == 0)
       {
@@ -451,8 +454,8 @@ int statement(FILE *input)
       if (token == lparentsym)
       {
         scanWord(input);
-        expression(input);
-        emit(RTN);
+        expression(lexlevel);
+        emit(2, "OPR", 0, 0);
         if (token != rparentsym)
         {
           printf("Error\n");
@@ -462,14 +465,14 @@ int statement(FILE *input)
       }
       else
       {
-        emit("LIT",0);
-        emit("RTN");
+        emit(1, "LIT", 0, 0);
+        emit(2, "OPR", 0, 0);
       }
     case beginsym:
       do
       {
         scanWord(input);
-        if (statement(input) == -1) return -1;
+        if (statement(lexlevel) == -1) return -1;
       } while(token == semicolonsym);
 
       if (token != endsym)
@@ -499,15 +502,19 @@ int statement(FILE *input)
 
       scanWord(input);
 
-      statement(input);
+      statement(lexlevel);
 
       if (token == elsesym)
       {
         scanWord(input);
-
+        jmpIndex = linePointer;
+        emit(7,"JMP", 0, jmpIndex);
+        code[jpcIndex].M = linePointer;
+        statement(lexlevel);
+        code[jmpIndex].M = linePointer;
       }
-
-      code[jpcIndex].M = linePointer;
+      else
+        code[jpcIndex].M = linePointer;
 
       return 1;
     case whilesym:
@@ -528,7 +535,7 @@ int statement(FILE *input)
       jpcIndex = linePointer;
       emit(8, "JPC", 0, 0);
 
-      statement(input);
+      statement(lexlevel);
 
       emit(7, "JMP", 0, loopIndex);
 
@@ -808,6 +815,8 @@ int fact(FILE *input)
       }
 
       scanWord(input);
+    case callsym:
+      statement(lexlevel);
     default:
       printf("Error : Unexpected token %d. Line %d.\n", token, __LINE__);
       return -1;
