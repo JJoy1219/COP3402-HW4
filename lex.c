@@ -184,7 +184,7 @@ int lex_analyze(char *args, int print)
           strncat(tokenList, conversion, strlen(conversion));
           begin = false;
           //printf("Adding %s to tokenList\n", conversion);
-          break;
+          //break;
         }
 
         // Reset word

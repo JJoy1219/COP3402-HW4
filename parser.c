@@ -66,6 +66,8 @@ typedef struct
   int M;
 } line;
 
+FILE *input;
+
 line code[500];
 int linePointer = 0;
 
@@ -75,29 +77,31 @@ int symPointer = 0;
 char word[12];
 int wordPointer = 0;
 
+int procedureCount = 0;
+
 // Token <- atoi(word)
 int token = 0;
 
 
 // HW 3 pseudocode functions
 int parse(int);
-int program(FILE*, int);
+int program(int);
 int block(int, int, int);
-int declConst(FILE*);
-int declVar(FILE*);
-int statement(int lexlevel);
-int condition(FILE*);
-int expression(FILE*);
-int term(FILE*);
-int fact(FILE*);
+int declConst(int);
+int declVar(int, int);
+int statement(int);
+int condition(int);
+int expression(int);
+int term(int);
+int fact(int);
 
 // HW 4 pseudocode functions
 int mark(int);
 int declProc(int);
 
 // Helper functions here
-int scanWord(FILE*);
-int symTableCheck(char[]);
+int scanWord();
+int symTableCheck(char[], int);
 int symTableSearch(char[], int, int);
 int findProcedure(int);
 void resetWord();
@@ -105,9 +109,9 @@ void emit(int, char[], int, int);
 
 int parse(int print)
 {
-  FILE *input = fopen("Output/tokenList.txt", "r");
+  input = fopen("Output/tokenList.txt", "r");
 
-  if (program(input, print) == -1)
+  if (program(print) == -1)
   {
     // return -1 if there's an error for any reason
     printf("Heyyy, something bad happened");
@@ -121,11 +125,43 @@ int parse(int print)
 }
 
 // In pseudocode, this is PROGRAM
-int program(FILE *input, int print)
+int program(int print)
 {
+
+  int numProc = 1;
+
+  emit(7, "JMP", 0, 3);
+
+  // Our version of foreach lexeme in list
+  // We aren't keeping a list of lexemes and I don't feel like rewriting the code to do so
+  // So this is my attempt at a workaround
+  while (!feof(input))
+  {
+    scanWord();
+
+    if (token == procsym)
+    {
+      numProc++;
+      emit (7, "JMP", 0, 2);
+    }
+  }
+
+  rewind(input);
+
+  symbolTable[symPointer].kind = 3;
+  strcpy(symbolTable[symPointer].name, "main");
+  symbolTable[symPointer].val = 0;
+  symbolTable[symPointer].level = 0;
+  symbolTable[symPointer].addr = 0;
+  symbolTable[symPointer].mark = 0;
+  symbolTable[symPointer].param = 0;
+
+  symPointer++;
+  procedureCount++;
+
   // BLOCK
   // terminate program if BLOCK returns -1
-  if (block(input) == -1)
+  if (block(0, 0, 0) == -1)
   {
     return -1;
   }
@@ -135,6 +171,11 @@ int program(FILE *input, int print)
   {
     printf("Error : program must end with period %d %s\n", token, word);
     return -1;
+  }
+
+  for (int i = 0; i < numProc; i++)
+  {
+    code[i].M = symbolTable[findProcedure(i)].addr;
   }
 
   emit(9, "SYS", 0, 3);
@@ -161,40 +202,44 @@ int program(FILE *input, int print)
 }
 
 
-int block (int lexlevel, int param, int procedureIndex)
+int block(int lexLevel, int param, int procedureIndex)
 {
-  int c = declConst(lexlevel);
+  int c = declConst(lexLevel);
 
-  int v = declVar(lexlevel, param);
+  int v = declVar(lexLevel, param);
 
-  int p = declProc(lexlevel);
+  int p = declProc(lexLevel);
 
-  symbol_table[procedureIndex].addr = linePointer;
+  symbolTable[procedureIndex].addr = linePointer;
 
   emit(6, "INC", 0, (4+v));
 
   // STATEMENT
-  statement(lexlevel);
+  statement(lexLevel);
 
   mark(c+v+p);
+
+  return 0;
 }
 
 // CONST-DECLARATION
-int declConst(FILE *input)
+int declConst(int lexLevel)
 {
   char num[100];
-  int numPoint = 0;
+  int numConst = 0;
 
   for (int i = 0; i < 100; i++)
     num[i] = 0;
 
-  scanWord(input);
+  scanWord();
 
   if (token == constsym)
   {
     do
     {
-      scanWord(input);
+      numConst++;
+
+      scanWord();
 
       if (token != identsym)
       {
@@ -202,9 +247,9 @@ int declConst(FILE *input)
         return -1;
       }
 
-      scanWord(input);
+      scanWord();
 
-      if (symTableCheck(word) != -1)
+      if (symTableCheck(word, lexLevel) != -1)
       {
         printf("Error : symbol name has already been declared\n");
         return -1;
@@ -215,7 +260,7 @@ int declConst(FILE *input)
       char identName[12];
       strcpy(identName, word);
 
-      scanWord(input);
+      scanWord();
 
       if (token != eqlsym)
       {
@@ -223,7 +268,7 @@ int declConst(FILE *input)
         return -1;
       }
 
-      scanWord(input);
+      scanWord();
 
       if (token != numbersym)
       {
@@ -231,18 +276,26 @@ int declConst(FILE *input)
         return -1;
       }
 
-      scanWord(input);
+      scanWord();
 
       symbolTable[symPointer].kind = 1;
       strcpy(symbolTable[symPointer].name, identName);
       symbolTable[symPointer].val = token;
-      symbolTable[symPointer].level = 0;
+      symbolTable[symPointer].level = lexLevel;
       symbolTable[symPointer].addr = 0;
+      symbolTable[symPointer].mark = 0;
+      symbolTable[symPointer].param = 0;
 
       symPointer++;
 
-      scanWord(input);
+      scanWord();
     } while(token == commasym);
+
+    if (token != semicolonsym)
+    {
+      printf("Error : Semicolon expected.\n");
+      return -1;
+    }
   }
   else
   {
@@ -251,30 +304,34 @@ int declConst(FILE *input)
     return 1;
   }
 
-  return 1;
+  return numConst;
 }
 
 // VAR-DECLARATION
 // Returns # of variables
-int declVar(FILE *input)
+int declVar(int lexLevel, int param)
 {
-  int numVars = 0, namePointer = 0;
+  int numVars, namePointer = 0;
+
+  if (param == 1)
+    numVars = 1;
+  else
+    numVars = 0;
 
   char name[12];
 
   for (int i = 0; i < 12; i++)
     name[i] = 0;
 
-  scanWord(input);
+  scanWord();
 
   if (token == varsym)
   {
-
     do
     {
 
       // Get next token
-      scanWord(input);
+      scanWord();
 
       // if token == varsym
       if (token == identsym)
@@ -290,12 +347,12 @@ int declVar(FILE *input)
             if (isdigit(name[0]))
             {
               // First letter of the variable is a number, that's illegal
-              //printf("Error : Variable cannot start with a digit. %s\n\n", name);
+              printf("Error : Variable cannot start with a digit. %s\n\n", name);
+              return -1;
             }
             else
             {
-              int result = symTableCheck(name);
-              //printf("New ident: %s\n", name);
+              int result = symTableCheck(name, lexLevel);
 
               if (result != -1)
               {
@@ -308,8 +365,10 @@ int declVar(FILE *input)
                 symbolTable[symPointer].kind = 2;
                 strcpy(symbolTable[symPointer].name, name);
                 symbolTable[symPointer].val = 0;
-                symbolTable[symPointer].level = 0;
+                symbolTable[symPointer].level = lexLevel;
                 symbolTable[symPointer].addr = numVars + 3;
+                symbolTable[symPointer].mark = 0;
+                symbolTable[symPointer].param = 0;
 
                 symPointer++;
                 namePointer = 0;
@@ -317,7 +376,7 @@ int declVar(FILE *input)
                 for (int i = 0; i < 12; i++)
                   name[i] = 0;
 
-                scanWord(input);
+                scanWord();
 
                 break;
               }
@@ -367,7 +426,9 @@ int declProc(int lexLevel)
 {
   int numProc = 0;
 
-  printf("Token: %d\n", token);
+  scanWord();
+
+  //printf("Token: %d\n", token);
 
   if (token == procsym)
   {
@@ -375,42 +436,138 @@ int declProc(int lexLevel)
     {
       numProc++;
 
-      scanWord(input);
+      scanWord();
 
-      if (token != ident)
-        printf("ERROR: Ident\n");
+      if (token != identsym)
+      {
+        printf("ERROR: Ident\n %d\n", token);
+        return -1;
+      }
+
+      scanWord();
 
       // Defaulted L = 0
       // Change this ASAP to actually work with lexLevel
-      if (symTableCheck(token, 0) != -1)
-        printf("ERROR: LexLevel\n");
+      if (symTableCheck(word, lexLevel) != -1)
+      {
+        printf("ERROR: lexLevel\n");
+        return -1;
+      }
 
-      // procIdx = end of symbol table
+
+      int procIdx = symPointer;
+
+      procedureCount++;
 
       symbolTable[symPointer].kind = 3;
-      symbolTable[symPointer].name =
+      strcpy(symbolTable[symPointer].name, word);
+      symbolTable[symPointer].val = procedureCount;
+      symbolTable[symPointer].level = lexLevel;
+      symbolTable[symPointer].addr = 0;
+      symbolTable[symPointer].mark = 0;
+      symbolTable[symPointer].param = 0;
+
+      symPointer++;
+
+      scanWord();
+
+      // if token == (
+      if (token == lparentsym)
+      {
+        scanWord();
+
+        if (token != identsym)
+        {
+          printf("Error: %d", __LINE__);
+          return -1;
+        }
+
+        symbolTable[symPointer].kind = 2;
+        strcpy(symbolTable[symPointer].name, word);
+        symbolTable[symPointer].val = 0;
+        symbolTable[symPointer].level = lexLevel + 1;
+        symbolTable[symPointer].addr = 0;
+        symbolTable[symPointer].mark = 0;
+        symbolTable[symPointer].param = 0;
+
+        symbolTable[procIdx].param = 1;
+
+        scanWord();
+
+        if (token != rparentsym)
+        {
+          printf("ERROR: Left parenthesis must be closed off with right parenthesis\n");
+          return -1;
+        }
+
+        scanWord();
+
+        if (token != semicolonsym)
+        {
+          printf("ERROR: Semicolon expected, line %d\n", __LINE__);
+          return -1;
+        }
+
+        scanWord();
+
+        printf("I never got here");
+        block(lexLevel + 1, 1, procIdx);
+      }
+      else
+      {
+        if (token != semicolonsym)
+        {
+          printf("ERROR: Semicolon expected, line %d\n", __LINE__);
+          return -1;
+        }
+
+        block(lexLevel + 1, 0, procIdx);
+      }
+
+      scanWord();
+
+      if (code[linePointer - 1].opcode != 2 && code[linePointer - 1].M != 0)
+      {
+        emit(1, "LIT", 0, 0);
+        emit(2, "RTN", 0, 0);
+      }
+
+      if (token != semicolonsym)
+      {
+        printf("ERROR: Semicolon expected, line %d\n", __LINE__);
+        return -1;
+      }
+
+      scanWord();
+
+
     } while (token == procsym);
   }
-  return 0;
+
+  return numProc;
 }
 
 // STATEMENT
 // Returns 1 if everything goes smoothly
 // Returns -1 if there's an error that requires the program to be terminated
-int statement(int lexlevel)
+int statement(int lexLevel)
 {
+  //printf("Current token, word and lexLevel: %d %s %d\n", token, word, lexLevel);
+
   int index = 0, jpcIndex = 0, loopIndex = 0, jmpIndex = 0;
 
   switch(token)
   {
     case identsym:
-      scanWord(input);
+      scanWord();
 
-      index = symTableCheck(word);
+      index = symTableSearch(word, lexLevel, 2);
+
+      printf("Searching for %s in the symbol table\n", word);
 
       if (index == -1)
       {
-        printf("Error : undeclared symbol\n");
+        printf("Error : undeclared symbol %s, %d\n", word, __LINE__);
         return -1;
       }
 
@@ -421,7 +578,7 @@ int statement(int lexlevel)
       }
 
       // Get next token
-      scanWord(input);
+      scanWord();
 
       if (token != becomessym)
       {
@@ -430,9 +587,9 @@ int statement(int lexlevel)
       }
 
       // Get next token
-      scanWord(input);
+      scanWord();
 
-      if (expression(input) == -1)
+      if (expression(lexLevel) == -1)
       {
 
         return -1;
@@ -441,72 +598,83 @@ int statement(int lexlevel)
       emit(4, "STO", 0, symbolTable[index].addr);
       return 1;
     case callsym:
-      scanWord(input);
-
+      scanWord();
 
       if (token != identsym)
       {
         printf("Error: const, var, procedure, call, and read keywords must be followed by identifier\n");
         return -1;
       }
-      symPointer = symTableSearch(token, lexlevel, 3);
-      if (symPointer == -1)
+
+      scanWord();
+      printf("Searching for %s at %d %d\n", word, lexLevel, 3);
+
+      int index = symTableSearch(word, lexLevel, 3);
+
+      if (index == -1)
       {
-        printf("Error\n");
+        printf("Error %d\n", __LINE__);
+        printf("INDEX: %d\n", index);
         return -1;
       }
-      scanWord(input);
+
+      scanWord();
+
       if (token == lparentsym)
       {
-        scanWord(input);
+        scanWord();
         if (symbolTable[symPointer].param != 1)
         {
-          printf("Error\n");
+          printf("Error %d\n", __LINE__);
           return -1;
         }
-        expression(lexlevel);
+        expression(lexLevel);
         if (token != rparentsym)
         {
-          printf("Error\n");
+          printf("Error %d\n", __LINE__);
           return -1;
         }
-        scanWord(input);
+        scanWord();
       }
       else
       {
         emit(1, "LIT", 0, 0);
         // This is sketch
       }
-      emit(5, "CAL", lexlevel - symboltable[symPointer].level, symboltable[symPointer].value);
+      emit(5, "CAL", lexLevel - symbolTable[index].level, symbolTable[index].val);
+
+      return 1;
     case returnsym:
-      if (lexlevel == 0)
+      if (lexLevel == 0)
       {
-        printf("Error\n");
+        printf("Error %d\n", __LINE__);
         return -1;
       }
-      scanWord(input);
+      scanWord();
       if (token == lparentsym)
       {
-        scanWord(input);
-        expression(lexlevel);
+        scanWord();
+        expression(lexLevel);
         emit(2, "OPR", 0, 0);
         if (token != rparentsym)
         {
-          printf("Error\n");
+          printf("Error %d\n", __LINE__);
           return -1;
         }
-        scanWord(input);
+        scanWord();
       }
       else
       {
         emit(1, "LIT", 0, 0);
         emit(2, "OPR", 0, 0);
       }
+
+      return 1;
     case beginsym:
       do
       {
-        scanWord(input);
-        if (statement(lexlevel) == -1) return -1;
+        scanWord();
+        if (statement(lexLevel) == -1) return -1;
       } while(token == semicolonsym);
 
       if (token != endsym)
@@ -515,13 +683,13 @@ int statement(int lexlevel)
         return -1;
       }
 
-      scanWord(input);
+      scanWord();
 
       return 1;
     case ifsym:
-      scanWord(input);
+      scanWord();
 
-      condition(input);
+      condition(lexLevel);
 
       // jpcIndex <- current code index
       jpcIndex = linePointer;
@@ -534,17 +702,17 @@ int statement(int lexlevel)
         return -1;
       }
 
-      scanWord(input);
+      scanWord();
 
-      statement(lexlevel);
+      statement(lexLevel);
 
       if (token == elsesym)
       {
-        scanWord(input);
+        scanWord();
         jmpIndex = linePointer;
         emit(7,"JMP", 0, jmpIndex);
         code[jpcIndex].M = linePointer;
-        statement(lexlevel);
+        statement(lexLevel);
         code[jmpIndex].M = linePointer;
       }
       else
@@ -552,11 +720,11 @@ int statement(int lexlevel)
 
       return 1;
     case whilesym:
-      scanWord(input);
+      scanWord();
 
       loopIndex = linePointer;
 
-      condition(input);
+      condition(lexLevel);
 
       if (token != dosym)
       {
@@ -564,12 +732,12 @@ int statement(int lexlevel)
         return -1;
       }
 
-      scanWord(input);
+      scanWord();
 
       jpcIndex = linePointer;
       emit(8, "JPC", 0, 0);
 
-      statement(lexlevel);
+      statement(lexLevel);
 
       emit(7, "JMP", 0, loopIndex);
 
@@ -577,7 +745,7 @@ int statement(int lexlevel)
 
       return 1;
     case readsym:
-      scanWord(input);
+      scanWord();
 
       if (token != identsym)
       {
@@ -585,13 +753,13 @@ int statement(int lexlevel)
         return -1;
       }
 
-      scanWord(input);
-      index = symTableCheck(word);
+      scanWord();
+      index = symTableCheck(word, lexLevel);
 
       // Symbol not found
       if (index == -1)
       {
-        printf("Error : undeclared symbol\n");
+        printf("Error : undeclared symbol %s, %d\n", word, __LINE__);
         return -1;
       }
 
@@ -602,16 +770,16 @@ int statement(int lexlevel)
         return -1;
       }
 
-      scanWord(input);
+      scanWord();
 
       emit(9, "SYS", 0, 2);
-      emit(4, "STO", 0, symbolTable[index].addr);
+      emit(4, "STO", lexLevel - symbolTable[index].level, symbolTable[index].addr);
 
       return 1;
     case writesym:
-      scanWord(input);
+      scanWord();
 
-      expression(input);
+      expression(lexLevel);
 
       emit(9, "SYS", 0, 1);
 
@@ -620,55 +788,56 @@ int statement(int lexlevel)
       if (token == endsym)
         return 1;
 
+      printf("???? LexLevel: %d\n", lexLevel);
       return -1;
   }
 }
 
 // CONDITION
-int condition(FILE *input)
+int condition(int lexLevel)
 {
   if (token == oddsym)
   {
-    scanWord(input);
+    scanWord();
 
-    if (expression(input) == -1) return -1;
+    if (expression(lexLevel) == -1) return -1;
 
     emit(2, "OPR", 0, 6);
   }
   else
   {
-    if (expression(input) == -1) return -1;
+    if (expression(lexLevel) == -1) return -1;
 
     switch(token)
     {
       case eqlsym:
-        scanWord(input);
-        if (expression(input) == -1) return -1;
+        scanWord();
+        if (expression(lexLevel) == -1) return -1;
         emit(2, "OPR", 0, 8);
         break;
       case neqsym:
-        scanWord(input);
-        if (expression(input) == -1) return -1;
+        scanWord();
+        if (expression(lexLevel) == -1) return -1;
         emit(2, "OPR", 0, 9);
         break;
       case lessym:
-        scanWord(input);
-        if (expression(input) == -1) return -1;
+        scanWord();
+        if (expression(lexLevel) == -1) return -1;
         emit(2, "OPR", 0, 10);
         break;
       case leqsym:
-        scanWord(input);
-        if (expression(input) == -1) return -1;
+        scanWord();
+        if (expression(lexLevel) == -1) return -1;
         emit(2, "OPR", 0, 11);
         break;
       case gtrsym:
-        scanWord(input);
-        if (expression(input) == -1) return -1;
+        scanWord();
+        if (expression(lexLevel) == -1) return -1;
         emit(2, "OPR", 0, 12);
         break;
       case geqsym:
-        scanWord(input);
-        if (expression(input) == -1) return -1;
+        scanWord();
+        if (expression(lexLevel) == -1) return -1;
         emit(2, "OPR", 0, 13);
         break;
       default:
@@ -681,13 +850,13 @@ int condition(FILE *input)
 }
 
 // EXPRESSION
-int expression(FILE *input)
+int expression(int lexLevel)
 {
   if (token == minussym)
   {
-    scanWord(input);
+    scanWord();
 
-    if (term(input) == -1)
+    if (term(lexLevel) == -1)
     {
       return -1;
     }
@@ -698,8 +867,8 @@ int expression(FILE *input)
     {
       if (token == plussym)
       {
-        scanWord(input);
-        if (term(input) == -1)
+        scanWord();
+        if (term(lexLevel) == -1)
         {
           return -1;
         }
@@ -707,8 +876,8 @@ int expression(FILE *input)
       }
       else
       {
-        scanWord(input);
-        if (term(input) == -1)
+        scanWord();
+        if (term(lexLevel) == -1)
         {
           return -1;
         }
@@ -720,9 +889,9 @@ int expression(FILE *input)
   else
   {
     if (token == plussym)
-      scanWord(input);
+      scanWord();
 
-    if (term(input) == -1)
+    if (term(lexLevel) == -1)
     {
       return -1;
     }
@@ -731,8 +900,8 @@ int expression(FILE *input)
     {
       if (token == plussym)
       {
-        scanWord(input);
-        if (term(input) == -1)
+        scanWord();
+        if (term(lexLevel) == -1)
         {
           return -1;
         }
@@ -740,8 +909,8 @@ int expression(FILE *input)
       }
       else
       {
-        scanWord(input);
-        if (term(input) == -1)
+        scanWord();
+        if (term(lexLevel) == -1)
         {
           return -1;
         }
@@ -755,9 +924,9 @@ int expression(FILE *input)
 }
 
 //TERM
-int term(FILE *input)
+int term(int lexLevel)
 {
-  if (fact(input) == -1)
+  if (fact(lexLevel) == -1)
   {
     return -1;
   }
@@ -767,25 +936,25 @@ int term(FILE *input)
     switch(token)
     {
       case multsym:
-        scanWord(input);
-        if (fact(input) == -1)
+        scanWord();
+        if (fact(lexLevel) == -1)
           return -1;
         emit(2, "OPR", 0, 4);
         break;
       case slashsym:
-        scanWord(input);
-        if (fact(input) == -1)
+        scanWord();
+        if (fact(lexLevel) == -1)
           return -1;
         emit(2, "OPR", 0, 5);
         break;
       case modsym:
-        scanWord(input);
-        if (fact(input) == -1)
+        scanWord();
+        if (fact(lexLevel) == -1)
           return -1;
         emit(2, "OPR", 0, 7);
         break;
       default:
-        printf("Error : Unexpected token %d. Line %d.\n", token, __LINE__);
+        printf("Error : Unexpected token\n");
         return -1;
     }
 
@@ -795,7 +964,7 @@ int term(FILE *input)
 }
 
 // FACTOR
-int fact(int lexlevel)
+int fact(int lexLevel)
 {
   int result = 0;
 
@@ -804,12 +973,12 @@ int fact(int lexlevel)
     case identsym:
       //// This isn't in the pseudocode, just wait and see if it works
 
-      scanWord(input);
-      result = symTableCheck(word);
+      scanWord();
+      result = symTableCheck(word, lexLevel);
 
       if (result == -1)
       {
-        printf("Error : undeclared symbol\n");
+        printf("Error : undeclared symbol %s, %d\n", word, __LINE__);
         return -1;
       }
 
@@ -824,23 +993,23 @@ int fact(int lexlevel)
         emit(3, "LOD", 0, symbolTable[result].addr);
       }
 
-      scanWord(input);
+      scanWord();
 
       break;
     case numbersym:
       // Get next token
-      scanWord(input);
+      scanWord();
 
       int num = token;
 
       emit(1, "LIT", 0, num);
 
-      scanWord(input);
+      scanWord();
       break;
     case lparentsym:
-      scanWord(input);
+      scanWord();
 
-      if (expression(input) == -1) return -1;
+      if (expression(lexLevel) == -1) return -1;
 
       if (token != rparentsym)
       {
@@ -848,9 +1017,12 @@ int fact(int lexlevel)
         return -1;
       }
 
-      scanWord(input);
+      scanWord();
+
+      break;
     case callsym:
-      statement(lexlevel);
+      statement(lexLevel);
+      break;
     default:
       printf("Error : Unexpected token %d. Line %d.\n", token, __LINE__);
       return -1;
@@ -864,7 +1036,7 @@ int fact(int lexlevel)
 // Mostly to help facilitate the above code
 
 // Helper function to get next token
-int scanWord(FILE *input)
+int scanWord()
 {
   resetWord();
 
@@ -903,7 +1075,7 @@ int mark(int count)
   {
     if (symbolTable[i].mark == 0)
     {
-      symbolTable[i].mark == 1;
+      symbolTable[i].mark = 1;
 
       count--;
     }
@@ -912,11 +1084,11 @@ int mark(int count)
   return 0;
 }
 
-int symTableCheck(char ident[])
+int symTableCheck(char ident[], int lexLevel)
 {
   for (int i = 0; i < symPointer; i++)
   {
-    if (strcmp(ident, symbolTable[i].name) == 0)
+    if (strcmp(ident, symbolTable[i].name) == 0 && symbolTable[i].level == lexLevel)
     {
       return i;
     }
@@ -924,29 +1096,45 @@ int symTableCheck(char ident[])
   return -1;
 }
 
-int symTableSearch(char string[], int lexlevel, int kind)
+int symTableSearch(char string[], int lexLevel, int kind)
 {
   int index = -1;
   int mindiff = INT_MAX;
-  for (int i = 0; i < 500; i++)
-    if (strcmp(symbolTable[i].name, string) && symbolTable[i].kind == kind)
-      if (symbolTable[i].mark == UNMARKED)
+
+  for (int i = 0; i < symPointer; i++)
+  {
+    if (strcmp(symbolTable[i].name, string) == 0 && symbolTable[i].kind == kind)
+    {
+      if (symbolTable[i].mark == 0)
       {
-        int diff = abs(symbolTable[i].level - lexlevel);
+        int diff = abs(symbolTable[i].level - lexLevel);
         if (diff < mindiff)
         {
           mindiff = diff;
           index = i;
         }
+
       }
+
+      return i;
+    }
+
+  }
+
   return index;
 }
 
 int findProcedure(int num)
 {
+  printf("Finding procedure: %d\n", num);
   for (int i = 0; i < 500; i++)
     if (symbolTable[i].kind == 3 && symbolTable[i].val == num)
+    {
+      printf("I found procedure %d\n", num);
       return i;
+    }
+
+  return -1;
 }
 
 // Reset the word for being read to avoid any conflicts
